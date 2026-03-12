@@ -1,0 +1,22 @@
+You are an expert evaluator. Compare the reference and generated answers only for semantic correctness and factual agreement.
+
+## TASK
+Determine whether the two answers express the same correct solution. Focus on meaning, correctness, and final results rather than wording or format.
+
+## EVALUATION GUIDELINES
+- **EQUIVALENT**: same conclusion or final answer, no substantive factual differences.
+- **DIFFERENT**: conflicting conclusions, missing required reasoning, or any factual mistake in the generated answer.
+
+## INPUT QUESTION
+{question}
+
+## REFERENCE ANSWER
+{solution}
+
+## GENERATED ANSWER
+{response}
+
+## OUTPUT INSTRUCTIONS
+Respond in the following two-line format (no extra text):
+Analysis: <concise reasoning>
+JUDGMENT: <EQUIVALENT or DIFFERENT>

@@ -1,0 +1,337 @@
+\section{MMFineReason Pipeline}
+In this section, we detail our dataset construction pipeline. First, we describe the data collection and processing procedures in Section~\ref{subsec:datacollect}. Next, we explain our method for distilling responses for curated datasets in Section~\ref{subsec:distill}. Finally, we present the data selection strategies in Section~\ref{subsec:dataselect}.
+
+\subsection{Data Collection and Processing}\label{subsec:datacollect}
+\paragraph{Data Collection.}
+
+We initiate our data construction by aggregating a diverse array of multimodal datasets from the open-source community. We first leverage FineVision~\cite{finevision}, an extensive collection of visual instruction datasets. We conduct a rigorous manual inspection of each candidate source, filtering out datasets unrelated to STEM or reasoning tasks. To expand the coverage of mathematical reasoning, scientific reasoning, and visual games \& puzzles, we further incorporate high-quality datasets such as BMMR~\cite{bmmr}, Euclid30K~\cite{euclid}, Zebra-CoT-Physics~\cite{zebracot}, and GameQA-140K~\cite{gameqa}. This strategic expansion ensures a more balanced and challenging coverage of scientific and puzzle-solving domains. For comprehensive details and inclusion criteria, please refer to Appendix~\ref{sec:subset}.
+
+% We initiate our data construction by aggregating a diverse array of multimodal datasets from the open-source community, spanning mathematical reasoning, scientific reasoning, and visual games \& puzzles. 
+% % In the early stages of our data collection, we source data from FineVision~\cite{finevision}, but identify two critical limitations within its reasoning subset:
+% In the preliminary phase, we leveraged FineVision~\cite{finevision}, an extensive collection of visual instruction datasets; however, we identified two critical limitations within its reasoning subset:
+% \begin{itemize}
+%     \item \textbf{Inconsistent Data Quality}: Certain subsets exhibit significant quality issues. For instance, \texttt{geomverse} suffers from drastic stylistic variance, while \texttt{Geo170K (align)}, \texttt{CLEVR} consists primarily of simple perceptual alignment tasks rather than genuine reasoning problems.
+%     \item \textbf{Domain Imbalance}: The distribution of scientific images is heavily skewed, with a disproportionate dominance of mathematical diagrams compared to other scientific domains.
+% \end{itemize}
+
+% To address these issues, we depart from the common practice of directly adopting existing data aggregations. Instead, we conducted a rigorous manual inspection of each candidate source, filtering out datasets that failed to meet our quality standards. 
+
+% Furthermore, we significantly expanded the breadth of our collection by incorporating high-quality but under-utilized resources (e.g., \texttt{BMMR}~\cite{bmmr}) and integrating recent cutting-edge datasets such as \texttt{Euclid30K}~\cite{euclid}, \texttt{Zebra-CoT-Physics}~\cite{zebracot}, and \texttt{GameQA-140K}~\cite{gameqa}. This strategic expansion ensures a more balanced and challenging coverage of scientific and puzzle-solving domains. For comprehensive details and inclusion criteria, please refer to Appendix~\ref{sec:subset}.
+
+\paragraph{Data Cleaning.}
+
+% We perform comprehensive data cleaning to ensure the solvability, and reasoning suitability of the collected samples. The cleaning procedure includes:
+
+% \begin{itemize}
+%     \item \textbf{Language normalization}: Several datasets (e.g., \texttt{BMMR}, \texttt{Euclid30K}) contain Chinese questions. We translate them into English to maintain consistency across the corpus.
+%     \item \textbf{Noise removal}: We rewrite questions to eliminate irrelevant artifacts such as webpage links, corrupted characters, formatting residues, problem indices, or score annotations.
+%     \item \textbf{Instruction refinement}: Prompts that encourage shallow or shortcut reasoning (e.g., ``directly give the answer'') are rewritten into more neutral forms such as ``provide your answer after careful reasoning,'' improving the quality of the distilled rationales.
+%     \item \textbf{Task suitability filtering}: Non-reasoning tasks such as coding instructions or drawing tasks are removed, as they fall outside the scope of visual analytical reasoning.
+% \end{itemize}
+
+We implement a comprehensive data cleaning pipeline to guarantee the linguistic consistency, textual cleanliness, and reasoning suitability of the collected samples. The cleaning prompt is detailed in Prompt~\ref{pmt:clean} (see Appendix~\ref{apx:case} for representative noise cases). The procedure includes:
+
+\begin{itemize}
+    \item \textbf{Language Standardization}: To unify the linguistic landscape of the corpus, we translate non-English questions found in datasets like \texttt{BMMR} and \texttt{Euclid30K} into English.
+    \item \textbf{Noise Removal}: We sanitize question text by removing extraneous artifacts, including webpage links, corrupted characters, formatting residues, problem indices, and score annotations.
+    \item \textbf{Instruction Refinement}: We reformulate prompts that solicit shallow responses (e.g., ``directly give the answer'') into directives that explicitly encourage analytical thinking (e.g., ``provide your answer after careful reasoning''). This step is crucial for eliciting high-quality reasoning traces during distillation.
+    \item \textbf{Task Suitability Filtering}: We filter out tasks that fall outside the scope of visual analytical reasoning, such as coding exercises or generation-based drawing tasks, ensuring the dataset remains focused on logical problem-solving.
+\end{itemize}
+
+We further perform automatic image cleaning~\cite{finevision} by discarding corrupted or unreadable images, resizing those with a longest side exceeding 2048 pixels while preserving aspect ratio, and converting all images uniformly to the RGB color space.
+
+% \paragraph{Image Cleaning.}
+% \begin{itemize}
+%     \item \textbf{Aspect ratio filtering}: Images with extreme width–height ratios are removed to avoid formatting distortion and ensure compatibility during training.
+%     \item \textbf{Low-quality image filtering}: We exclude images that are severely low-resolution, blurred, contain compression artifacts, or are visually corrupted.
+% \end{itemize}
+
+\paragraph{Data Standardization.}
+\label{sec:standardization}
+The landscape of multimodal datasets is characterized by significant fragmentation and a lack of standardization. The heterogeneity in file formats and annotation structures across different sources poses a substantial challenge for unified data processing. For datasets that lack explicit ground-truth labels, we employ \texttt{Qwen3-30B-A3B-Thinking} to extract and store the missing answers in the \texttt{answer} field, following the prompt in Prompt~\ref{pmt:answer_extraction}. To facilitate downstream processes—such as caption generation, reasoning distillation, and correctness evaluation—and to enhance accessibility for the research community, we further convert all collected samples into a unified canonical schema. Each standardized data entry includes the following fields:
+\begin{itemize}
+    \item \textbf{Metadata}: \texttt{source}, \texttt{id}
+    \item \textbf{Raw Data}: \texttt{original\_question}, \texttt{original\_answer}
+    \item \textbf{Input/Output}: \texttt{image}, \texttt{question}, \texttt{answer}
+    \item \textbf{Augmented Annotations}: \texttt{qwen3vl\_235b\_instruct\_caption}, \texttt{qwen3vl\_235b\_thinking\_response}
+    \item \textbf{Metrics}: \texttt{qwen3vl\_4b\_pass\_rate}, \texttt{is\_consistent}, \texttt{consistency\_analysis}
+\end{itemize}
+\noindent
+The schema fields are defined as follows: \texttt{source} denotes the origin dataset (e.g., Geometry3K), while \texttt{id} serves as the unique sample identifier. The Raw Data fields preserve the \texttt{original\_question} and \texttt{original\_answer} exactly as obtained from the source, which are then processed into the standardized Input/Output triplet (\texttt{image}, \texttt{question}, and \texttt{answer}) used for training.
+
+Within the Augmented Annotations, \texttt{qwen3vl\_235b\_instruct\_caption} and \texttt{qwen3vl\_235b\_thinking\_response} denote the dense visual description and reasoning steps generated by the teacher model, respectively. The Metrics group includes \texttt{qwen3vl\_4b\_pass\_rate}, which serves as a difficulty proxy based on a smaller model's performance, alongside \texttt{is\_consistent} and \texttt{consistency\_analysis}, which provide automated verification of the generated reasoning against the ground truth.
+
+% \input{tables/collection}
+
+\subsection{Data Annotation}\label{subsec:distill}
+
+% \paragraph{Image Captioning}
+% \label{sec:image-captioning}
+% % Each image is annotated with dense captions describing objects, spatial layout, symbols, and attributes. The teacher model simultaneously assigns an image-type label (diagram, puzzle, STEM, geometry, etc.).
+
+% Prior work~\cite{honeybee} has demonstrated that generating image captions before reasoning can substantially improve multimodal performance by providing models with an explicit, structured grounding of the visual content.  
+% Motivated by these findings, we employ \texttt{Qwen3-VL-235B-Instruct} to generate a dense, fine-grained caption for every image in our dataset.
+
+% Furthermore, recent evidence~\cite{liang2025multimodal} suggests that stylistically consistent and structurally organized visual descriptions are particularly beneficial for scientific and diagrammatic reasoning.  
+% Following this insight, we design a structured caption prompt (see Prompt~\ref{pmt:caption}) that enforces a unified output template and explicitly guides the model to categorize the image into well-defined types (e.g., \textit{Geometric Diagram}, \textit{Scientific Illustration}, \textit{Spatial Reasoning Scene}, \textit{Puzzle Layout}).  
+% The prompt specifies a hierarchical description format covering global layout, symbolic elements, spatial relations, and critical visual cues.
+
+% This structured captioning step produces dense, high-coverage descriptions that enhance subsequent CoT distillation and improve consistency across heterogeneous visual domains.
+
+% \paragraph{Long CoT Distillation}
+% We prompt Qwen3-VL-235B-thinking to generate detailed chain-of-thought reasoning for each task. Importantly, captions are \textit{not} provided during distillation to avoid enabling text-only shortcuts; the model must rely on visual information to produce reasoning.
+% We use \texttt{Qwen3-VL-235B-thinking} to distill long-form chain-of-thought (CoT) explanations for each sample. Although structured captions were distilled in the previous stage, we deliberately withhold them during CoT distillation. The teacher model is provided only the image and the task prompt to prevent text-only shortcuts and ensure that the generated reasoning is genuinely grounded in visual content. The distillation prompt (see Prompt~\ref{pmt:distill}) enforces a unified output template: the model first emits a multi-step reasoning trace wrapped in a \verb|<think>...</think>| block, followed by the final solution wrapped in an \verb|<answer>...</answer>| block to facilitate downstream answer parsing and automatic verification. An example distilled output is shown below:
+
+
+% We use \texttt{Qwen3-VL-235B-A22B-Thinking} to distill long-form chain-of-thought (CoT) explanations for each sample. 
+We employ \texttt{Qwen3-VL-235B-A22B-Thinking}, currently recognized as the SOTA open-source VLM, to distill long-form CoT explanations for each sample.
+To ensure the rigor and reproducibility of the reasoning process, the distillation prompt (see Prompt~\ref{pmt:distill}) imposes a systematic four-phase solution framework: \textit{Comprehensive Information Extraction}, \textit{Strategic Problem Setup}, \textit{Rigorous Solution Execution}, and \textit{Solution Validation}. Furthermore, it explicitly instructs the model to treat visual elements as integral components of the solution rather than supplementary context.
+
+The prompt also enforces a unified output template: the model first emits a multi-step reasoning trace wrapped in a \verb|<think>...</think>| block, followed by the final solution wrapped in an \verb|<answer>...</answer>| block to facilitate downstream answer parsing and automatic verification. Additionally, we utilize \texttt{Qwen3-VL-235B-A22B-Instruct} to generate dense image captions, following the guidelines in Prompt~\ref{pmt:caption}.
+% An example distilled output is shown below:
+% 可放一个示例
+
+% \paragraph{Caption-Augmented Reasoning}
+% % Following distillation, we enhance each reasoning sample by attaching the caption using a structured format:
+% % \begin{verbatim}
+% % <caption> ... dense caption ... </caption>
+% % <reasoning> ... long-form CoT ... </reasoning>
+% % \end{verbatim}
+% % This improves grounding for downstream training while ensuring the teacher signal remains visually grounded.
+
+% After distillation, we construct an augmented training instance by prepending the previously generated structured caption(Section~\ref{sec:image-captioning}) to the distilled CoT. The caption is not used during teacher generation, but it is included in the final packaged example that will be used for student fine-tuning. The canonical stored format is:
+
+% \begin{verbatim}
+% <caption> Structured Caption </caption>
+% <think> Long CoT </think> ...
+% <answer> FINAL ANSWER </answer>
+% \end{verbatim}
+
+% This design preserves the integrity of the teacher signal (visually grounded CoT) while providing the student model with an explicit visual summary to improve grounding during supervised fine-tuning.
+
+Through this systematic annotation and distillation process, we obtain the original MMFineReason-Full dataset, consisting of \textbf{2.3M} samples with a total of \textbf{8.8B} solution tokens. 
+% To the best of our knowledge, MMFineReason represents the most comprehensive open-source dataset for multimodal scientific reasoning to date, covering a wide range of STEM problems, visual puzzles, and complex diagrammatic reasoning tasks. 
+A detailed breakdown of the dataset composition is provided in Table~\ref{tab:data_stats_split}.
+
+
+
+% @Yun Zhu
+\subsection{Data Selection}\label{subsec:dataselect}
+
+\input{figures/filtration}
+
+\paragraph{Reasoning Quality Filtering to Construct MMFineReason-1.8M.}
+We adopt a simple and light way to construct our MMFineReason dataset for training. Specifically, to ensure high-quality and non-redundant reasoning traces, we apply a multi-stage filtering procedure to the distilled outputs.
+
+\begin{itemize}
+    \item \textbf{Template and Length Validation}: We first impose strict structural validation to ensure the usability of the distilled output. Specifically, we filter out any reasoning trace that fails to adhere to the mandated \verb|<think>...</think>| and \verb|<answer>...</answer>| output template. Furthermore, to prevent the retention of superficial or trivial rationales, we enforce a minimum length constraint, discarding traces that are shorter than 100 words. This stage removes approximately 1.2\% of the data based on length and template constraints (Table~\ref{app:datacleaning}). The detailed statistics of the processed subsets are reported in Table~\ref{app:datacleaning}.
+    \item \textbf{N-gram De-duplication}: We detect and remove templated or overly repetitive CoTs using an n-gram overlap criterion. Concretely, we flag CoTs that contain any 50-gram that repeats at least 3 times (i.e., $n=50$, frequency threshold $f=3$). Flagged traces are either discarded or re-generated with a different random seed to encourage diversity.
+    \item \textbf{Correctness Verification}: For tasks that have ground-truth answers, we extract the final answer from the \verb|<answer>| tag and compare it against the answer extracted in Section~\ref{sec:standardization}, the incorrect CoTs are discarded. The detailed verification protocol is provided in Prompt~\ref{pmt:verify}. This process eliminated roughly 20\% of instances containing potential hallucinations or incorrect reasoning traces, the consistency ratios across different subsets are summarized in Figure~\ref{fig:consistent}. The detailed verification results are shown in Table~\ref{tab:pass_rate_stats}.
+\end{itemize}
+
+Following the above data selection pipeline, we obtain a high-quality \textbf{MMFineReason-1.8M} dataset with totally \textbf{5.1B} solution tokens. 
+We further uniformly sample 40k instances from MMFineReason-1.8M to construct an RL training subset, while the remaining data are reserved for SFT.
+
+% \paragraph{Difficulty Filtering for Efficient Training}
+% We adopt a difficulty-based curation strategy inspired by the LIMO framework~\cite{limo}.  
+% For each question, we rollout \texttt{Qwen3-VL-4B-Instruct} with four independent samples.  
+% If the model answers correctly in any of the sampled attempts, we discard the example. 
+% This conservative filtering ensures that only genuinely challenging problems---those that even a moderate-size model fails consistently---are retained.  
+% This rigorous pruning ensures that the final dataset consists exclusively of genuinely challenging problems—those that consistently baffle moderate-sized models. By filtering out solvable samples, we concentrate the data distribution on tasks requiring high-level visual reasoning rather than simple pattern matching.
+
+
+
+\paragraph{Difficulty Filtering for Efficient Training.}\label{para:difficulty}
+Given the massive scale of our curated data, training on the entire corpus is computationally suboptimal due to the prevalence of redundant or trivial samples. To address this, we employ a difficulty-based filtering strategy~\cite{limo}. Specifically, we perform inference on each question using \texttt{Qwen3-VL-4B-Thinking}, generating four independent responses. We discard any example where the model provides a correct answer in at least one attempt (pass rate = 0). This conservative filtering criterion ensures that we retain only genuinely challenging problems where a moderate-sized model fails consistently. By discarding samples that contribute negligible training signals, we direct our computational resources toward challenging data points that actively drive optimization, resulting in faster convergence. 
+% We provide a detailed analysis of the difficulty score distribution in Section~\ref{subsec:filter}.
+Specifically, we derive two challenging subsets from the full MMFineReason-1.8M corpus: \textbf{MMFineReason-123K} and \textbf{MMFineReason-586K}, by retaining samples with \textbf{pass rate = 0} and \textbf{pass rate $\neq$ 1}, respectively, which are well suited for efficient SFT and ablation studies.
+A detailed analysis of the difficulty score distribution is presented in Section~\ref{subsec:filter}.
+
+
+
+
+% Ultimately, through this rigorous pipeline, we obtain a final dataset of \textbf{1.8M} samples for SFT. From this curated corpus, we further construct a RL dataset by uniformly sampling 40k instances.
+% Ultimately, through this rigorous pipeline, we first remove approximately 1.2\% of the data based on length and template constraints (Table~\ref{app:datacleaning}) to ensure the distilled responses conformed to a valid format. To verify correctness and reliability, we also filter out samples where the model's prediction diverged from the ground truth. This process eliminated roughly 20\% of instances containing potential hallucinations or incorrect reasoning traces, the consistency ratios across different subsets are summarized in Figure~\ref{fig:consistent}. 
+% While this necessitated high rejection rates for challenging datasets like Raven and VisualSphinx, it was a crucial trade-off to maintain data purity.
+% Furthermore, we uniformly sample 40k instances from xxx ratios to construct a subset for RL training. 
+% Finally, we obtain total high-quality \textbf{MMFineReason-1.8M} dataset.
+% Specifically, template-based validation and correctness verification results are reported in Table~\ref{app:datacleaning} and Table~\ref{tab:fail_score_stats}, respectively.
+
+
+% \paragraph{SFT Data Selection}
+% \paragraph{RL Data Selection}
+
+
+
+\section{MMFineReason Dataset}
+% 数据集统计分析，及与相关数据集的比较
+In this section, we present a comprehensive analysis of MMFineReason. We begin by delineating the dataset composition in Section~\ref{subsec:composition}. Subsequently, we investigate visual diversity in Section~\ref{subsec:image}, with a specific focus on image category distribution and visual granularity. Finally, Section~\ref{subsec:response} provides a statistical analysis of response characteristics and benchmarks our dataset against existing multi-modal reasoning datasets.
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=1\linewidth]{figures/dataset_composition_sft.png}
+    \caption{Dataset composition of MMFineReason-1.8M. The outer ring represents the proportion of major categories, and the inner ring shows the distribution of specific datasets. \textbf{Note:} To ensure the visual legibility of diverse domains, the segment sizes in this chart are scaled by the \textbf{square root} of sample counts ($\sqrt{N}$). The actual data distribution is dominated by Mathematics (79.4\%), followed by Science (13.8\%), Puzzle/Game (4.6\%), and General/OCR (2.2\%).}
+    \label{fig:dataset-composition}
+\end{figure}
+\subsection{Dataset Composition}\label{subsec:composition}
+
+MMFineReason contains approximately 1.8 million (specifically 1,770,926) high-quality multimodal reasoning samples. Figure~\ref{fig:dataset-composition} summarizes the domain distribution of the dataset, which is strategically weighted towards symbolic and logic-heavy tasks: Mathematics (79.4\%), Science (13.8\%), Puzzle/Game (4.6\%), and General/OCR (2.2\%).
+
+\textbf{Mathematics (79.4\%).} This domain forms the backbone of our reasoning supervision, primarily sourced from the massive MMR1~\cite{mmr1} dataset (1.27M). To ensure diversity in problem types, we integrate WaltonColdStart~\cite{walton} (42.4K) and ViRL39K~\cite{virl} (32.0K). We further enhance geometric and symbolic reasoning capabilities by including Euclid30K~\cite{euclid} (22.6K), MMK12~\cite{mmk12} (13.8K), Geo170K~\cite{finevision} (8.9K), and Geo3K~\cite{finevision} (4.7K). Finally, we incorporate specialized subsets including mm-openr1~\cite{mmopenr1} (4.0K) and the comprehensive WeMath family~\cite{wemath} (Standard 4.5K, Pro 3.3K, and SFT 0.7K).
+
+\textbf{Science (13.8\%).} Science constitutes a significant portion of the dataset, anchored by VisualWebInstruct~\cite{finevision} (157.3K) and BMMR~\cite{bmmr} (54.6K). These are complemented by smaller, high-quality collections such as TQA~\cite{finevision} (10.4K) and AI2D~\cite{finevision} (10.6K), along with domain-specific subsets like Zebra-CoT~\cite{zebracot} (5.9K) and ScienceQA~\cite{finevision} (5.8K).
+
+\textbf{Puzzle/Game (4.6\%).} This domain targets strategic planning and abstract pattern recognition. It is dominated by GameQA-140K~\cite{gameqa} (71.7K) and further enriched by Raven~\cite{finevision} (7.5K), VisualSphinx~\cite{visualsphinx} (1.2K), and PuzzleQA~\cite{puzzlevqa} (1.4K).
+
+\textbf{General/OCR (2.2\%).} In contrast to general-data-heavy training recipes, we adopt a reasoning-dominant composition. Empirically, the base model's visual perception is already robust, and extensive general data often yields diminishing returns for reasoning tasks. Therefore, we include only 38.7K general-purpose samples from LLaVA-CoT~\cite{llava-cot}, serving as a regularization set to preserve broad visual and OCR capabilities without diluting the reasoning-centric supervision.
+
+
+% MMFineReason consists of approximately 1 million high-quality multimodal reasoning samples. The data composition is shown in Figure~\ref{fig:dataset-composition}. 
+
+
+% \paragraph{General VQA and OCR Integration}
+% We incorporate general VQA and OCR datasets at controlled ratios to boost general visual capabilities while maintaining robust reasoning performance.
+% In conventional training paradigms, such as LLaVA~\cite{llava} and Cambrian~\cite{cambrian}, the training corpus is typically dominated by vast amounts of general-purpose data. However, our preliminary experiments reveal that models trained exclusively on reasoning data do not suffer significant degradation in general capabilities, a resilience we attribute to the superior visual perception inherent in the base model. Consequently, we adopt a \textbf{reasoning-dominant strategy} where we supplement the high-quality reasoning dataset with a minimal amount of general visual and OCR data. Specifically, we incorporate only 70K general/OCR samples from LLaVA-CoT-100K. This lightweight integration effectively bolsters the model's general perception without imposing a significant overhead on the training process.
+
+
+% To provide a more granular understanding of the dataset's characteristics and diversity, we conduct a comprehensive statistical analysis. Specifically, we report statistics covering three key dimensions: image distribution, reasoning length distributions, and caption complexity.
+
+
+
+
+
+% \paragraph{Reasoning Quality Filtering.} Our initial data pool contained approximately 2.3 million samples (specifically 2,286,130). We first removed approximately 1.2\% of the data based on length and template constraints (Table~\ref{app:datacleaning}) to ensure the distilled responses conformed to a valid format. To verify correctness and reliability, we further filtered out samples where the model's prediction diverged from the ground truth. This process eliminated roughly 20\% of instances containing potential hallucinations or incorrect reasoning traces. While this necessitated high rejection rates for challenging datasets like Raven and VisualSphinx, it was a crucial trade-off to maintain data purity. The final distribution of the remaining 1.8M samples is shown in Figure~\ref{fig:dataset-composition}.
+
+% \subsection{Filtration Analysis}\label{subsec:filter}
+\begin{figure}[t!]
+    \centering
+    \includegraphics[width=1\linewidth]{figures/pass_rate_dist.pdf}
+    \caption{Pass rate distribution across sub-datasets. Datasets are sorted by descending mean pass rate (easiest to hardest). The bubble chart encodes sample proportion via size and color intensity, overlaid with a mean pass rate trendline.}
+    \label{fig:difficulty_dist}
+\end{figure}
+
+\subsection{Difficulty Distribution Analysis}\label{subsec:filter}
+
+% \paragraph{Pass Rate Analysis.}
+Building on the filtration technique for efficient training described in Section~\ref{para:difficulty}, Figure~\ref{fig:difficulty_dist} illustrates the pass rate distribution across various sub-datasets using a bubble chart overlaid with a mean pass rate line. The datasets are arranged on the x-axis by mean pass rate in descending order (left to right), ensuring a visual progression from easiest to hardest, while the y-axis represents the ``Pass Rate'' from 0.00 (hardest) to 1.00 (easiest). Bubble size and color intensity denote the proportion of samples at a specific pass rate level.
+
+Notably, science-oriented sub-datasets such as ScienceQA, AI2D, and TQA exhibit relatively high pass rates. These datasets are generally considered simpler because they feature clean, synthetic diagrams and primarily rely on knowledge derived from primary and secondary school textbooks. Furthermore, they lack the visual complexity and expert depth required by modern standards and are predominantly Multiple Choice Questions, which limits the solution space. Conversely, puzzle and game-based datasets like GameQA-140K, Raven, and VisualSphinx demonstrate the lowest pass rates. These sub-datasets require multi-step abstract reasoning and fine-grained visual discrimination, resulting in a significant concentration of samples with low pass rates. Furthermore, we observe that the proportion of samples in the intermediate range remains sparse across all sub-datasets. This is because the reasoning process involved often follows a binary success outcome. Unlike tasks where partial understanding might yield closer approximations, these logic and puzzle problems require a rigorous, unbroken chain of deduction; a single failure in any reasoning step or visual grounding typically leads to a completely incorrect answer, thereby polarizing the distribution toward the extremes (0 or 1) and leaving the middle interval empty.
+
+\input{tables/compare_token} %放appendix？
+
+\begin{figure}[t]
+    \centering
+
+    \begin{subfigure}[t]{0.32\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/cot_token_distribution_sft.pdf}
+        % \caption{\textbf{Cumulative distribution of CoT token lengths across the four domains in MMFineReason}. The graph clearly shows revealing domain-specific variation in reasoning depth.}
+        % \caption{Cumulative distribution of CoT token lengths across the four domains in MMFineReason.}
+        \phantomsubcaption
+        \label{fig:cot-token-distribution}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.32\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/cot_token_comparison.pdf}
+        % \caption{\textbf{Distribution of Chain-of-Thought (CoT) token lengths.} MMFineReason (Red) exhibits a significantly broader range and higher median than others, demonstrating superior reasoning depth.}
+        % \caption{Distribution of CoT token lengths.}
+        \phantomsubcaption
+        \label{fig:cot-token-comparison}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.32\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/caption_token_comparison.pdf}
+        % \caption{\textbf{Comparison of caption token lengths.} The shift towards higher token counts in MMFineReason compared to HoneyBee highlights its richer visual semantics and fine-grained descriptions.}
+        % \caption{Comparison of caption token lengths.}
+        \phantomsubcaption
+        \label{fig:caption-token-comparison}
+    \end{subfigure}
+
+    \caption{Token length analysis of MMFineReason. We present the internal domain distribution of CoT lengths (\textit{left}), followed by external comparisons of CoT depth (\textit{mid}) and caption richness (\textit{right}) against prior works. MMFineReason consistently shows higher token counts, indicating greater complexity.}
+    \label{fig:token-analysis}
+\end{figure}
+
+\subsection{Visual Semantic Analysis}\label{subsec:image}
+To quantify the visual diversity of our dataset, we adopt a caption-based classification strategy. By generating detailed descriptions and categorizing the images based on their semantic content, we provide a fine-grained analysis of the visual distribution.
+
+\paragraph{Visual Content Analysis.}
+Recent studies~\cite{llava-cot,xia2025visionary} demonstrate that detailed image captioning significantly enhances multimodal reasoning capabilities. Building on this insight, we leverage the powerful \texttt{Qwen3-VL-235B-A22B-Thinking} model to generate structured, high-fidelity captions for the entire MMFineReason dataset. As shown in Figure~\ref{fig:caption-token-comparison} and Table~\ref{tab:token-comparison}, MMFineReason provides significantly denser semantic information, averaging 609 tokens per caption—more than double the length of HoneyBee~\cite{honeybee} (299 tokens). 
+
+Crucially, distinct from HoneyBee which only incorporates captions for a subset of its samples (approx. 58\%), MMFineReason guarantees 100\% caption coverage for all image-question pairs. This comprehensive coverage ensures that every reasoning chain is explicitly supported by fine-grained visual details, providing a more consistent and robust foundation for multimodal learning than baselines with partial visual context.
+
+\paragraph{Visual Topic Diversity.}
+Leveraging the generated captions as high-level semantic tags, we taxonomize the dataset into distinct STEM/diagrammatic and natural-image categories; the distribution is detailed in Table~\ref{tab:image_distribution}. The corpus is predominantly composed of STEM and diagrammatic content: geometric diagrams, mathematical plots, and logic puzzles collectively account for $75.3\%$ of the full set. This reflects the MMFineReason's emphasis on symbolic and diagram-centric reasoning. While natural images constitute a smaller fraction, they exhibit significant internal diversity—ranging from urban scenes and documents to astronomical visualizations. This intentional distribution ensures MMFineReason prioritizes fine-grained mathematical reasoning while retaining a complementary natural subset to assess generalization beyond synthetic diagrams. We leave the investigation of optimal mixing ratios between these distributions to future work.
+% \paragraph{Visual Granularity (Caption).} 
+% High-quality reasoning relies on detailed visual grounding. In terms of description quality, as shown in Figure~\ref{fig:caption-token-comparison} and Table~\ref{tab:token-comparison}, MMFineReason provides significantly denser semantic information, averaging \textbf{622} tokens per caption—\textbf{more than double} the length of HoneyBee (299). 
+
+% Crucially, distinct from HoneyBee which only incorporates captions for a subset of its samples (approx. 58\%), MMFineReason guarantees \textbf{100\% caption coverage} for all image-question pairs. This comprehensive coverage ensures that every reasoning chain is explicitly supported by fine-grained visual details, providing a more consistent and robust foundation for multimodal learning than baselines with partial visual context.
+
+% \paragraph{Image category distribution.}
+% \input{tables/image_distribution}
+% \input{tables/compare_token} %放appendix？
+% As discussed in Section~\ref{sec:image-captioning}, we employ \texttt{Qwen3-VL-235B-A22B-Instruct} to generate structured captions for all images in MMFineReason. These captions provide high-level semantic tags describing the visual content and allow us to categorize images into meaningful types. Based on these generated descriptions, we classify images into a diverse set of STEM/diagrammatic and natural-image categories; a summary is reported in Table~\ref{tab:image_distribution}. Overall, STEM and diagrammatic images overwhelmingly dominate the corpus: geometric diagrams, mathematical plots/charts, and puzzle/logic diagrams together account for roughly $70.1\%$ of the STEM subset (about $65.5\%$ of all images), highlighting the benchmark’s focus on symbolic and diagram-centric reasoning. In contrast, natural images constitute only a small fraction of the data, but are internally diverse: urban and street scenes, document/text images, indoor scenes, and astronomy or space visualizations collectively cover about half of the natural subset. This skewed yet structured distribution is intentional, ensuring that MMFineReason primarily stresses fine-grained mathematical and diagrammatic reasoning while still providing a complementary set of natural images to probe generalization beyond purely synthetic diagrams.
+
+
+\input{tables/image_distribution}
+
+\subsection{Response Analysis}\label{subsec:response}
+Following the generation protocol described in Section~\ref{subsec:distill}, we present a statistical analysis of the resulting generations, specifically characterizing the distribution of domain-specific response lengths and comparing them with existing recent multimodal reasoning datasets, such as OpenMMReasoner~\cite{openmmreasoner} and HoneyBee~\cite{honeybee}.
+
+\paragraph{Reasoning Depth Comparison to Other Datasets.} 
+We quantify reasoning depth by analyzing the CoT token length distributions using the Qwen3-VL tokenizer (Figure~\ref{fig:cot-token-comparison} and Table~\ref{tab:token-comparison}). MMFineReason exhibits a substantially more elaborate reasoning process than existing baselines, achieving an average CoT length of 2,910 tokens—approximately $2.7\times$ longer than HoneyBee ($1,063$) and $4.3\times$ longer than OpenMMReasoner ($675$). Notably, the median token count of MMFineReason ($2,038$) is nearly $2.1\times$ that of HoneyBee ($972$) and over $11.3\times$ that of OpenMMReasoner ($180$). This disparity indicates that while baselines often provide concise or superficial rationales, MMFineReason consistently delivers extensive, step-by-step derivations. Furthermore, the extended tail of our distribution (Max: $16,316$) underscores the dataset's capacity to handle highly complex, multi-stage reasoning tasks requiring deep cognitive traversal.
+
+\paragraph{Token Length Distribution of MMFineReason.}
+To evaluate the structural quality and domain adaptability of MMFineReason, we analyze the token length distribution and reasoning density across four curated domains. Using the Qwen3-VL tokenizer on the generated responses (\texttt{qwen3vl\_235b\_thinking\_response}), we observe distinct characteristics (visualized in Figure~\ref{fig:cot-token-distribution}):
+\begin{itemize}
+\item \textbf{Puzzle \& Game:} This domain exhibits the highest average length ($4,810$ tokens), reflecting the most intensive reasoning requirements. The distribution is driven by the necessity for rigorous visual-spatial verification. In tasks such as Raven (avg. $7,745$ tokens) and VisualSphinx (avg. $6,833$ tokens), the model must explicitly hypothesize rules and verify candidate options sequentially, resulting in dense ``System-2'' reasoning traces that significantly exceed those of other domains.
+
+\item \textbf{Mathematics:} The Mathematics domain demonstrates high information density with an average length of $2,950$ tokens. Distinguished by exceptional symbolic rigor, this category exhibits a density of LaTeX markers more than double that of scientific tasks. The structure is distinct from natural language tasks, heavily populated with step-by-step symbolic derivations (e.g., Euclid30K, Geo170k) essential for precise calculation.
+
+\item \textbf{Science:} Averaging $2,305$ tokens across $245$k samples, this domain bridges abstract logic and real-world context. The data reflects a dual process: the model must ground visual entities (Perception) before applying domain-specific knowledge (Causal Inference). The result is a balanced reasoning structure combining substantial textual explanation with moderate symbolic usage.
+
+\item \textbf{General/OCR:} Serving as a regularization baseline, this category remains concise (avg. $1,262$ tokens). Primarily derived from LLaVA-CoT, these samples prioritize direct visual grounding over complex logical deduction. This preserves the model's ``System-1'' perception capabilities, mitigating ``reasoning hallucination''—the tendency to over-generate complex rationales for simple perceptual tasks.
+\end{itemize}
+
+
+
+
+
+% \paragraph{Answer tokens distribution.}
+% To assess the structural quality and domain adaptability of MMFineReason, we analyze the token length distribution and reasoning density across the four curated domains. The analysis is performed using the Qwen3-VL tokenizer on the generated Caption-Augmented Chain-of-Thought (CoT) responses. A comprehensive visualization of these distributions is provided in Figure~\ref{fig:cot-token-distribution}.
+
+% % \begin{figure}
+% %     \centering
+% %     \includegraphics[width=1\linewidth]{figures/cot_token_distribution.pdf}
+% %     % \includegraphics[width=1\linewidth]{template/figures/token_length_cdf_fake.pdf}
+% %     \caption{\textbf{Cumulative distribution of CoT token lengths across the four domains in MMFineReason}. The graph clearly shows revealing domain-specific variation in reasoning depth.}
+% %     \label{fig:token-distribution}
+% % \end{figure}
+
+% \begin{itemize}
+%     \item \textbf{Puzzle \& Game (Spatial-Logic Depth):} The Puzzle/Game domain exhibits the highest average length (6,594 tokens), reflecting the most intensive reasoning process among all categories. This distribution is driven by the necessity of rigorous visual-spatial verification. In tasks like Raven (avg. 9,475 tokens) and VisualSphinx (avg. 8153 tokens), the model must explicitly hypothesize rules and verify candidate options sequentially, resulting in a dense ``System-2'' reasoning trace that significantly exceeds other domains.
+
+%     \item \textbf{Mathematics (Symbolic Rigor):} The Mathematics domain demonstrates high information density with a robust average length of 3,456 tokens. This category is distinguished by exceptional symbolic rigor, exhibiting a density of LaTeX markers that is \textbf{nearly double} that of scientific tasks. The distribution is structurally distinct from natural language tasks, heavily populated with step-by-step symbolic derivations (as seen in Euclid30K and Geo170k) necessary for precise calculation.
+
+%     \item \textbf{Science (Multimodal Knowledge Application):} With an average of 3,103 tokens across 378k samples, this domain serves as a bridge between abstract logic and real-world context. The data reflects a dual process: the model must first ground visual entities (Perception) and then apply domain-specific knowledge (Causal Inference). It maintains a balanced reasoning structure, combining substantial textual explanation with moderate symbolic usage.
+
+%     \item \textbf{General/OCR (Visual Anchor):} Serving as a regularization baseline, this category remains concise (avg. 1,920 tokens). Unlike reasoning-heavy domains, these samples (primarily from LLaVA-CoT) prioritize direct visual grounding over complex logical deduction. This helps preserve the model's ``System-1'' perception capabilities, preventing ``reasoning hallucination''—the tendency to over-generate complex rationales for simple perceptual tasks.
+% \end{itemize}
+
+
+% \paragraph{Reasoning Depth (CoT).} 
+% We conducted a quantitative analysis of token distributions to evaluate the reasoning depth across datasets using the Qwen3-VL tokenizer, as visualized in Figure~\ref{fig:cot-token-comparison}. Detailed statistics are provided in Table~\ref{tab:token-comparison}. MMFineReason exhibits a substantially richer reasoning process compared to existing baselines. Specifically, MMFineReason achieves an average CoT length of \textbf{3,840} tokens, which is approximately \textbf{3.6$\times$} longer than HoneyBee (1,063) and \textbf{5.7$\times$} longer than OpenMMReasoner (675). 
+
+% More notably, the median token count of MMFineReason (\textbf{2,814}) is nearly \textbf{2.9$\times$} that of HoneyBee (972) and over \textbf{15.6$\times$} that of OpenMMReasoner (180). This stark contrast indicates that while baselines often provide concise or surface-level rationales, MMFineReason consistently delivers extensive, step-by-step derivations. Furthermore, the extended tail of our distribution (Max: 19,044) demonstrates the dataset's unique capacity to handle highly complex, multi-stage reasoning tasks that require deep cognitive traversals.
+
+
+
+% \section{Model Training}
+
+% \subsection{Supervised Fine-Tuning (SFT)}
+% We perform supervised fine-tuning on our curated dataset, focusing on the most challenging examples to maximize reasoning capability.  
+
+% \subsection{Reinforcement Finetuning (GSPO)}
+% To further enhance multi-step reasoning, we apply a reinforcement learning strategy inspired by GSPO~\cite{gspo}.  
+% - Reward signals are designed to promote correctness, coherence, and step-wise logical consistency.  
+% - Samples with high model uncertainty are prioritized to focus learning on the hardest reasoning tasks.

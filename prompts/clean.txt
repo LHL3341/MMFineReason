@@ -1,0 +1,73 @@
+Task: Clean the given question textby following these steps:
+
+### Error Type
+
+#### Translation
+- Translate the question into English.
+- If the question is already in English, keep it as is.
+
+#### Irrelevant content
+- Remove all irrelevant links, advertisements, signatures, emails, special symbols, or repeated punctuation.
+- Remove Markdown watermarks, unrelated tables, or redundant markings in formulas.
+- Remove question numbers, IDs, or scoring information that appears before the actual question (e.g., “Q12.”, “(5 points)”, “1.”).
+- Do NOT consider an <image> tag at the beginning of a question as irrelevant content.
+
+#### Non-answer question
+- Questions that are not actual problem-solving questions, e.g. ask to draw a diagram or write code but should be marked under this error type.
+- Questions that are incomplete to the point that they cannot be answered.
+
+#### Low-quality instruction
+- If the question contains instructions that may reduce reasoning quality (e.g.,"Please provide a short description", "Answer the question using a single word or phrase.", "just give the answer", "do not think", "give me the final answer only"), rewrite these into instructions that encourage thoughtful reasoning (e.g., “provide a clear reasoning process before the final answer”).
+
+### Output Rules
+- If the question has no issues (no translation or cleaning needed) → output:
+```
+No Problem
+```
+- If the question has issues → output JSON in the following format:
+```json
+{
+  "error_type": ["translation", "irrelevant content"], // only "translation", "irrelevant content", "non-answer question" and "low-quality instruction"
+  "corrected_text": "Cleaned and translated version of the question (leave empty if non-answer question)"
+}
+```
+
+### Examples
+
+* Input:
+
+```
+请问这是什么？https://example.com
+```
+
+* Output:
+
+```json
+{
+  "error_type": ["translation", "irrelevant content"],
+  "corrected_text": "What is this?"
+}
+```
+
+* Input:
+
+```
+请直接回答问题：这个方程的根是多少？
+```
+
+* Output:
+
+```json
+{
+  "error_type": ["translation", "low-quality instruction"],
+  "corrected_text": "Please provide a clear reasoning process before giving the roots of this equation."
+}
+```
+
+* Input:
+
+```
+{question}
+```
+
+* Output:

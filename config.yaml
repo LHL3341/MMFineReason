@@ -1,0 +1,80 @@
+# ========================
+# Global
+# ========================
+num_proc: 8
+
+# ========================
+# Stage 1: Collection
+# ========================
+collection:
+  dataset_id: "OpenDataArena/MMFineReason-Full-2.3M-Qwen3-VL-235B-Thinking"
+  subsets:
+    - BMMR
+    - Euclid30K
+  cache_dir: null
+
+# ========================
+# Stage 2: Cleaning
+# ========================
+cleaning:
+  max_image_size: 2048
+  clean_images: false
+  llm_client:
+    type: vllm
+    api_base: "http://localhost:8000/v1"
+    model: "Qwen3-30B-A3B-Thinking"
+    api_key: ""
+
+# ========================
+# Stage 3: Distillation
+# ========================
+distillation:
+  cot:
+    client:
+      type: vllm
+      api_base: "http://localhost:8002/v1"
+      model: "Qwen3-VL-235B-A22B-Thinking"
+      api_key: ""
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 16384
+    thinking: true
+
+  caption:
+    client:
+      type: vllm
+      api_base: "http://localhost:8001/v1"
+      model: "Qwen3-VL-235B-A22B-Instruct"
+      api_key: ""
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 16384
+
+# ========================
+# Stage 4: Selection
+# ========================
+selection:
+  content_filter:
+    min_response_words: 200
+    min_caption_words: 100
+    error_keyword: "[ERROR]"
+
+  structure_filter:
+    no_answer_check_datasets:
+      - "FineVision-visualwebinstruct(filtered)"
+      - "LLaVA-CoT"
+      - "FineVision-ai2d_merged"
+
+  quality_filter:
+    ngram_n: 50
+    ngram_freq: 3
+    consistency: true
+
+  difficulty_filter:
+    threshold: null
+    num_samples: 4
+    client:
+      type: vllm
+      api_base: "http://localhost:8003/v1"
+      model: "Qwen3-VL-4B-Thinking"
+      api_key: ""
